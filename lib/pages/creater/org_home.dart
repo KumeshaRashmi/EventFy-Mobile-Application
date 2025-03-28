@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'dart:io';
+import 'package:path/path.dart' as path;
+import 'org_profile.dart';
+import 'org_settings.dart';
+import 'org_create_event.dart';
+import 'org_edit_event.dart'; // Import the new edit page
 
 class OrgHomePage extends StatefulWidget {
   final String profileImageUrl;
@@ -22,304 +26,235 @@ class OrgHomePage extends StatefulWidget {
 }
 
 class _OrgHomePageState extends State<OrgHomePage> {
-  final TextEditingController eventNameController = TextEditingController();
-  final TextEditingController eventDescriptionController = TextEditingController();
-  final TextEditingController ticketPriceController = TextEditingController();
+  int _selectedIndex = 0;
+  bool _isLoading = false;
+  final List<Map<String, dynamic>> events = [];
 
-  DateTime? selectedDate;
-  TimeOfDay? selectedTime;
-
-  String selectedCategory = 'Music';
-  String selectedLocation = 'Colombo';
-  File? _eventImage;
-  bool _isUploading = false;
-
-  final List<String> categories = [
-    'Music',
-    'Business',
-    'Food',
-    'Art',
-    'Films',
-    'Sports',
-  ];
-
-  final List<String> sriLankanLocations = [
-    'Colombo',
-    'Gampaha',
-    'Kalutara',
-    'Kandy',
-    'Matale',
-    'Nuwara Eliya',
-    'Galle',
-    'Matara',
-    'Hambantota',
-    'Jaffna',
-    'Kilinochchi',
-    'Mannar',
-    'Mullaitivu',
-    'Vavuniya',
-    'Batticaloa',
-    'Ampara',
-    'Trincomalee',
-    'Kurunegala',
-    'Puttalam',
-    'Anuradhapura',
-    'Polonnaruwa',
-    'Badulla',
-    'Monaragala',
-    'Ratnapura',
-    'Kegalle',
-  ];
-
-  Future<void> _pickImage() async {
-    final pickedFile = await ImagePicker().pickImage(source: ImageSource.gallery);
-    if (pickedFile != null) {
-      setState(() {
-        _eventImage = File(pickedFile.path);
-      });
-    }
+  @override
+  void initState() {
+    super.initState();
+    _fetchEvents();
   }
 
-  Future<void> _selectDate() async {
-    final pickedDate = await showDatePicker(
-      context: context,
-      initialDate: DateTime.now(),
-      firstDate: DateTime(2022),
-      lastDate: DateTime(2030),
-    );
-
-    if (pickedDate != null) {
-      setState(() {
-        selectedDate = pickedDate;
-      });
-    }
-  }
-
-  Future<void> _selectTime() async {
-    final pickedTime = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.now(),
-    );
-
-    if (pickedTime != null) {
-      setState(() {
-        selectedTime = pickedTime;
-      });
-    }
-  }
-
-  Future<String> _uploadImageToCloudinary(File imageFile) async {
-    const cloudName = 'dwuzpk4cd'; // Replace with your Cloudinary cloud name
-    const uploadPreset = 'localevent'; // Replace with your Cloudinary unsigned upload preset
-
-    final url = Uri.parse('https://api.cloudinary.com/v1_1/$cloudName/image/upload');
-    final request = http.MultipartRequest('POST', url);
-
-    request.fields['upload_preset'] = uploadPreset;
-    request.files.add(await http.MultipartFile.fromPath('file', imageFile.path));
-
-    final response = await request.send();
-
-    if (response.statusCode == 200) {
-      final responseData = await response.stream.bytesToString();
-      final jsonResponse = json.decode(responseData);
-      return jsonResponse['secure_url'];
-    } else {
-      throw Exception('Failed to upload image to Cloudinary');
-    }
-  }
-
-  Future<void> _createEvent() async {
-    if (_eventImage == null ||
-        eventNameController.text.isEmpty ||
-        eventDescriptionController.text.isEmpty ||
-        selectedDate == null ||
-        selectedTime == null ||
-        ticketPriceController.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please fill in all fields and select an image.')),
-      );
-      return;
-    }
-
-    setState(() {
-      _isUploading = true;
-    });
-
+  void _fetchEvents() async {
     try {
-      // Upload image to Cloudinary
-      final imageUrl = await _uploadImageToCloudinary(_eventImage!);
-
-      // Combine date and time into a single DateTime object
-      final eventDateTime = DateTime(
-        selectedDate!.year,
-        selectedDate!.month,
-        selectedDate!.day,
-        selectedTime!.hour,
-        selectedTime!.minute,
-      );
-
-      // Add event details to Firestore
-      await FirebaseFirestore.instance.collection('events').add({
-        'title': eventNameController.text.trim(),
-        'description': eventDescriptionController.text.trim(),
-        'dateTime': eventDateTime.toIso8601String(),
-        'location': selectedLocation,
-        'category': selectedCategory,
-        'image': imageUrl,
-        'organizer': widget.displayName,
-        'ticketPrice': ticketPriceController.text.trim(),
-        'timestamp': FieldValue.serverTimestamp(),
-      });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Event created successfully!')),
-      );
-
-      eventNameController.clear();
-      eventDescriptionController.clear();
-      ticketPriceController.clear();
+      setState(() => _isLoading = true);
+      final snapshot = await FirebaseFirestore.instance
+          .collection('events')
+          .where('organizer', isEqualTo: widget.displayName)
+          .orderBy('timestamp', descending: true)
+          .get();
       setState(() {
-        _eventImage = null;
-        selectedCategory = 'Music';
-        selectedLocation = 'Colombo';
-        selectedDate = null;
-        selectedTime = null;
+        events.clear();
+        events.addAll(snapshot.docs.map((doc) {
+          final data = doc.data();
+          data['id'] = doc.id;
+          return data;
+        }).toList());
       });
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to create event: $e')),
+        SnackBar(content: Text('Failed to fetch events: $e')),
       );
     } finally {
-      setState(() {
-        _isUploading = false;
-      });
+      setState(() => _isLoading = false);
     }
+  }
+
+  void _onItemTapped(int index) {
+    setState(() {
+      _selectedIndex = index;
+    });
+  }
+
+  Future<void> _editEvent(Map<String, dynamic> event) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => OrgEditEventPage(event: event),
+      ),
+    );
+    _fetchEvents(); // Refresh the event list after editing
+  }
+
+  Future<void> _deleteEvent(String eventId) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Event'),
+        content: const Text('Are you sure you want to delete this event? This action cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      try {
+        setState(() => _isLoading = true);
+        await FirebaseFirestore.instance.collection('events').doc(eventId).delete();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Event deleted successfully!')),
+        );
+        _fetchEvents();
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to delete event: $e')),
+        );
+      } finally {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  Widget _buildEventList() {
+    if (events.isEmpty) {
+      return const Center(
+        child: Text('No events found. Create your first event!'),
+      );
+    }
+
+    return ListView.builder(
+      shrinkWrap: true,
+      physics: const AlwaysScrollableScrollPhysics(),
+      itemCount: events.length,
+      itemBuilder: (context, index) {
+        final event = events[index];
+        return Card(
+          elevation: 2,
+          margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+          child: ListTile(
+            leading: event['image'] != null
+                ? Image.network(
+                    event['image'],
+                    width: 50,
+                    height: 50,
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) => const Icon(Icons.error),
+                  )
+                : const Icon(Icons.event),
+            title: Text(event['title'] ?? 'Untitled Event'),
+            subtitle: Text(
+              event['dateTime'] != null
+                  ? DateTime.parse(event['dateTime']).toLocal().toString().split('.')[0]
+                  : 'No date set',
+            ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.edit),
+                  onPressed: _isLoading ? null : () => _editEvent(event),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.delete, color: Colors.red),
+                  onPressed: _isLoading ? null : () => _deleteEvent(event['id']),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildHomeContent() {
+    return RefreshIndicator(
+      onRefresh: () async => _fetchEvents(),
+      child: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _buildEventList(),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final List<Widget> pages = [
+      _buildHomeContent(),
+      OrgProfilePage(
+        profileImageUrl: widget.profileImageUrl,
+        displayName: widget.displayName,
+        email: widget.email,
+      ),
+      OrgCreateEventPage(organizerName: widget.displayName),
+      OrgSettingsPage(),
+    ];
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Create Event'),
+        title: _selectedIndex == 0
+            ? Row(
+                children: [
+                  CircleAvatar(
+                    backgroundImage: widget.profileImageUrl.isNotEmpty
+                        ? NetworkImage(widget.profileImageUrl)
+                        : null,
+                    child: widget.profileImageUrl.isEmpty
+                        ? const Icon(Icons.person, color: Colors.white)
+                        : null,
+                  ),
+                  const SizedBox(width: 10),
+                  Flexible(
+                    child: Text(
+                      'Welcome, ${widget.displayName.split(' ')[0]}!',
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              )
+            : Text(['Home', 'Profile', 'Create Event', 'Settings'][_selectedIndex]),
         backgroundColor: Colors.redAccent,
+        elevation: 0,
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            TextField(
-              controller: eventNameController,
-              decoration: const InputDecoration(
-                labelText: 'Event Name',
-                border: OutlineInputBorder(),
-              ),
+      body: Stack(
+        children: [
+          pages[_selectedIndex],
+          if (_isLoading)
+            Container(
+              color: Colors.black.withOpacity(0.3),
+              child: const Center(child: CircularProgressIndicator()),
             ),
-            const SizedBox(height: 15),
-            TextField(
-              controller: eventDescriptionController,
-              maxLines: 3,
-              decoration: const InputDecoration(
-                labelText: 'Event Description',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 15),
-            DropdownButtonFormField<String>(
-              value: selectedCategory,
-              decoration: const InputDecoration(
-                labelText: 'Category',
-                border: OutlineInputBorder(),
-              ),
-              items: categories.map((category) {
-                return DropdownMenuItem(value: category, child: Text(category));
-              }).toList(),
-              onChanged: (value) {
-                setState(() {
-                  selectedCategory = value!;
-                });
-              },
-            ),
-            const SizedBox(height: 15),
-            DropdownButtonFormField<String>(
-              value: selectedLocation,
-              decoration: const InputDecoration(
-                labelText: 'Location',
-                border: OutlineInputBorder(),
-              ),
-              items: sriLankanLocations.map((location) {
-                return DropdownMenuItem(value: location, child: Text(location));
-              }).toList(),
-              onChanged: (value) {
-                setState(() {
-                  selectedLocation = value!;
-                });
-              },
-            ),
-            const SizedBox(height: 15),
-            Row(
-              children: [
-                Expanded(
-                  child: TextFormField(
-                    readOnly: true,
-                    onTap: _selectDate,
-                    decoration: InputDecoration(
-                      labelText: selectedDate != null
-                          ? 'Date: ${selectedDate!.toLocal().toString().split(' ')[0]}'
-                          : 'Select Date',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: TextFormField(
-                    readOnly: true,
-                    onTap: _selectTime,
-                    decoration: InputDecoration(
-                      labelText: selectedTime != null
-                          ? 'Time: ${selectedTime!.format(context)}'
-                          : 'Select Time',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 15),
-            TextField(
-              controller: ticketPriceController,
-              decoration: const InputDecoration(
-                labelText: 'Ticket Price (e.g., RS.5000)',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 15),
-            _eventImage != null
-                ? Image.file(_eventImage!, height: 200, width: double.infinity, fit: BoxFit.cover)
-                : const SizedBox.shrink(),
-            ElevatedButton.icon(
-              onPressed: _pickImage,
-              icon: const Icon(Icons.image),
-              label: const Text('Choose Event Image'),
-              style: ElevatedButton.styleFrom(
-                foregroundColor: Colors.red,
-              ),
-            ),
-            const SizedBox(height: 15),
-            _isUploading
-                ? const CircularProgressIndicator()
-                : ElevatedButton(
-                    onPressed: _createEvent,
-                    style: ElevatedButton.styleFrom(
-                      foregroundColor: Colors.white,
-                      backgroundColor: Colors.redAccent,
-                    ),
-                    child: const Text('Create Event'),
-                  ),
-          ],
-        ),
+        ],
       ),
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _selectedIndex,
+        onTap: _onItemTapped,
+        type: BottomNavigationBarType.fixed,
+        selectedItemColor: Colors.redAccent,
+        unselectedItemColor: Colors.grey,
+        items: const [
+          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
+          BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
+          BottomNavigationBarItem(icon: Icon(Icons.add_circle_outline), label: 'Create'),
+          BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Settings'),
+        ],
+      ),
+      floatingActionButton: _selectedIndex == 0
+          ? FloatingActionButton(
+              onPressed: _isLoading
+                  ? null
+                  : () async {
+                      await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => OrgCreateEventPage(
+                            organizerName: widget.displayName,
+                          ),
+                        ),
+                      );
+                      _fetchEvents();
+                    },
+              backgroundColor: Colors.redAccent,
+              child: const Icon(Icons.add),
+            )
+          : null,
     );
   }
 }

@@ -57,6 +57,7 @@ dependencies:
   flutter_email_sender: ^7.0.0
   uuid: ^4.5.1
   carousel_slider: ^5.0.0
+  shared_preferences: ^2.5.2
 
   
 

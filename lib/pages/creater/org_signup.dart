@@ -3,7 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:lef_mob/pages/creater/org_home.dart';
-import 'package:lef_mob/pages/login.dart';
+import 'package:lef_mob/pages/creater/org_login.dart';
 
 
 class OrgSignupPage extends StatelessWidget {
@@ -44,7 +44,7 @@ class OrgSignupPage extends StatelessWidget {
       'fullName': fullNameController.text.trim(),
       'email': email,
       'phone': phoneController.text.trim(),
-      'profileImageUrl': '', 
+      'profileImageUrl': '',
     });
     
       // Navigate to Home page if successful
@@ -203,7 +203,7 @@ class OrgSignupPage extends StatelessWidget {
                     onTap: () {
                       Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (context) => LoginPage()),
+                        MaterialPageRoute(builder: (context) => OrgLoginPage()),
                       );
                     },
                     child: const Text(

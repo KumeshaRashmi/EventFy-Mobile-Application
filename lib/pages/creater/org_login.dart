@@ -6,8 +6,6 @@ import 'package:lef_mob/pages/creater/org_home.dart';
 import 'package:lef_mob/pages/creater/org_signup.dart';
 
 
-//import 'resetpassword.dart';
-
 class OrgLoginPage extends StatelessWidget {
   final TextEditingController emailController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
