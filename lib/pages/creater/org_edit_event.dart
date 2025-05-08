@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'dart:convert';
 import 'dart:io';
 
@@ -23,7 +24,7 @@ class _OrgEditEventPageState extends State<OrgEditEventPage> {
   TimeOfDay? selectedTime;
 
   String? selectedCategory;
-  String? selectedLocation;
+  LatLng? selectedLocation;
   File? _eventImage;
   String? _existingImageUrl;
   bool _isUploading = false;
@@ -37,42 +38,14 @@ class _OrgEditEventPageState extends State<OrgEditEventPage> {
     'Sports',
   ];
 
-  final List<String> sriLankanLocations = [
-    'Colombo',
-    'Gampaha',
-    'Kalutara',
-    'Kandy',
-    'Matale',
-    'Nuwara Eliya',
-    'Galle',
-    'Matara',
-    'Hambantota',
-    'Jaffna',
-    'Kilinochchi',
-    'Mannar',
-    'Mullaitivu',
-    'Vavuniya',
-    'Batticaloa',
-    'Ampara',
-    'Trincomalee',
-    'Kurunegala',
-    'Puttalam',
-    'Anuradhapura',
-    'Polonnaruwa',
-    'Badulla',
-    'Monaragala',
-    'Ratnapura',
-    'Kegalle',
-  ];
-
   @override
   void initState() {
     super.initState();
     // Initialize controllers with existing event data
-    eventNameController = TextEditingController(text: widget.event['title']);
-    eventDescriptionController = TextEditingController(text: widget.event['description']);
-    ticketPriceController = TextEditingController(text: widget.event['ticketPrice']);
-    
+    eventNameController = TextEditingController(text: widget.event['title'] ?? '');
+    eventDescriptionController = TextEditingController(text: widget.event['description'] ?? '');
+    ticketPriceController = TextEditingController(text: widget.event['ticketPrice']?.toString() ?? '');
+
     // Initialize date and time
     if (widget.event['dateTime'] != null) {
       final eventDateTime = DateTime.parse(widget.event['dateTime']);
@@ -80,9 +53,17 @@ class _OrgEditEventPageState extends State<OrgEditEventPage> {
       selectedTime = TimeOfDay(hour: eventDateTime.hour, minute: eventDateTime.minute);
     }
 
-    // Initialize category and location
+    // Initialize category
     selectedCategory = widget.event['category'];
-    selectedLocation = widget.event['location'];
+
+    // Initialize location (handle GeoPoint)
+    if (widget.event['location'] is GeoPoint) {
+      final geoPoint = widget.event['location'] as GeoPoint;
+      selectedLocation = LatLng(geoPoint.latitude, geoPoint.longitude);
+    } else if (widget.event['location'] is String) {
+      final locationData = widget.event['location'].split(',');
+      selectedLocation = LatLng(double.parse(locationData[0]), double.parse(locationData[1]));
+    }
 
     // Initialize image
     _existingImageUrl = widget.event['image'];
@@ -105,7 +86,7 @@ class _OrgEditEventPageState extends State<OrgEditEventPage> {
       lastDate: DateTime(2030),
     );
 
-    if (pickedDate != null) {
+    if (pickedDate != null && mounted) {
       setState(() {
         selectedDate = pickedDate;
       });
@@ -118,7 +99,7 @@ class _OrgEditEventPageState extends State<OrgEditEventPage> {
       initialTime: selectedTime ?? TimeOfDay.now(),
     );
 
-    if (pickedTime != null) {
+    if (pickedTime != null && mounted) {
       setState(() {
         selectedTime = pickedTime;
       });
@@ -147,14 +128,14 @@ class _OrgEditEventPageState extends State<OrgEditEventPage> {
   }
 
   Future<void> _updateEvent() async {
-    if (_eventImage == null && _existingImageUrl == null ||
-        eventNameController.text.isEmpty ||
+    if (eventNameController.text.isEmpty ||
         eventDescriptionController.text.isEmpty ||
         selectedDate == null ||
         selectedTime == null ||
-        ticketPriceController.text.isEmpty) {
+        ticketPriceController.text.isEmpty ||
+        selectedLocation == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please fill in all fields and select an image.')),
+        const SnackBar(content: Text('Please fill in all fields and select a location.')),
       );
       return;
     }
@@ -179,33 +160,66 @@ class _OrgEditEventPageState extends State<OrgEditEventPage> {
         selectedTime!.minute,
       );
 
-      // Update event details in Firestore
+      // Update event details in Firestore with GeoPoint
       await FirebaseFirestore.instance.collection('events').doc(widget.event['id']).update({
         'title': eventNameController.text.trim(),
         'description': eventDescriptionController.text.trim(),
         'dateTime': eventDateTime.toIso8601String(),
-        'location': selectedLocation,
+        'location': GeoPoint(selectedLocation!.latitude, selectedLocation!.longitude),
         'category': selectedCategory,
         'image': imageUrl,
         'ticketPrice': ticketPriceController.text.trim(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Event updated successfully!')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Event updated successfully!')),
+        );
+      }
 
       // Pop back to OrgHomePage
-      Navigator.pop(context);
+      if (mounted) {
+        Navigator.pop(context);
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to update event: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to update event: $e')),
+        );
+      }
     } finally {
+      if (mounted) {
+        setState(() {
+          _isUploading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _pickLocation() async {
+    final LatLng? pickedLocation = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => LocationPickerPage(
+          initialLocation: selectedLocation ?? const LatLng(6.9271, 79.8612), // Default to Colombo
+        ),
+      ),
+    );
+
+    if (pickedLocation != null && mounted) {
       setState(() {
-        _isUploading = false;
+        selectedLocation = pickedLocation;
       });
     }
+  }
+
+  @override
+  void dispose() {
+    eventNameController.dispose();
+    eventDescriptionController.dispose();
+    ticketPriceController.dispose();
+    super.dispose();
   }
 
   @override
@@ -246,26 +260,25 @@ class _OrgEditEventPageState extends State<OrgEditEventPage> {
                 return DropdownMenuItem(value: category, child: Text(category));
               }).toList(),
               onChanged: (value) {
-                setState(() {
-                  selectedCategory = value;
-                });
+                if (mounted) {
+                  setState(() {
+                    selectedCategory = value;
+                  });
+                }
               },
             ),
             const SizedBox(height: 15),
-            DropdownButtonFormField<String>(
-              value: selectedLocation,
-              decoration: const InputDecoration(
-                labelText: 'Location',
-                border: OutlineInputBorder(),
+            ElevatedButton.icon(
+              onPressed: _pickLocation,
+              icon: const Icon(Icons.map),
+              label: Text(selectedLocation != null
+                  ? 'Location Selected: ${selectedLocation!.latitude.toStringAsFixed(4)}, ${selectedLocation!.longitude.toStringAsFixed(4)}'
+                  : 'Pick Location'),
+              style: ElevatedButton.styleFrom(
+                foregroundColor: Colors.redAccent,
+                backgroundColor: Colors.white,
+                side: const BorderSide(color: Colors.redAccent),
               ),
-              items: sriLankanLocations.map((location) {
-                return DropdownMenuItem(value: location, child: Text(location));
-              }).toList(),
-              onChanged: (value) {
-                setState(() {
-                  selectedLocation = value;
-                });
-              },
             ),
             const SizedBox(height: 15),
             Row(
@@ -304,24 +317,26 @@ class _OrgEditEventPageState extends State<OrgEditEventPage> {
                 labelText: 'Ticket Price (e.g., RS.5000)',
                 border: OutlineInputBorder(),
               ),
+              keyboardType: TextInputType.number,
             ),
             const SizedBox(height: 15),
             _eventImage != null
                 ? Image.file(_eventImage!, height: 200, width: double.infinity, fit: BoxFit.cover)
                 : _existingImageUrl != null
-                    ? Image.network(_existingImageUrl!, height: 200, width: double.infinity, fit: BoxFit.cover)
+                    ? Image.network(_existingImageUrl!, height: 200, width: double.infinity, fit: BoxFit.cover, errorBuilder: (context, error, stackTrace) => const Icon(Icons.error, size: 50))
                     : const SizedBox.shrink(),
             ElevatedButton.icon(
               onPressed: _pickImage,
               icon: const Icon(Icons.image),
               label: const Text('Change Event Image'),
               style: ElevatedButton.styleFrom(
-                foregroundColor: Colors.red,
+                foregroundColor: Colors.white,
+                backgroundColor: Colors.redAccent,
               ),
             ),
             const SizedBox(height: 15),
             _isUploading
-                ? const CircularProgressIndicator()
+                ? const CircularProgressIndicator(color: Colors.redAccent)
                 : ElevatedButton(
                     onPressed: _updateEvent,
                     style: ElevatedButton.styleFrom(
@@ -332,6 +347,38 @@ class _OrgEditEventPageState extends State<OrgEditEventPage> {
                   ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class LocationPickerPage extends StatelessWidget {
+  final LatLng initialLocation;
+
+  const LocationPickerPage({super.key, required this.initialLocation});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Pick Location'),
+        backgroundColor: Colors.redAccent,
+      ),
+      body: GoogleMap(
+        initialCameraPosition: CameraPosition(
+          target: initialLocation,
+          zoom: 14.0,
+        ),
+        onTap: (LatLng location) {
+          Navigator.pop(context, location);
+        },
+        markers: {
+          if (initialLocation != null)
+            Marker(
+              markerId: const MarkerId('initialLocation'),
+              position: initialLocation,
+            ),
+        },
       ),
     );
   }

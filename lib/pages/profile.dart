@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:lef_mob/pages/favourites.dart';
+import 'package:lef_mob/pages/map.dart';
 import 'setting.dart';
 import 'eventcalender.dart';
 
@@ -73,8 +74,6 @@ class ProfilePage extends StatelessWidget {
                   buildMenuItem(context, 'Account settings'),
                   buildMenuItem(context, 'Favorites'),
                   buildMenuItem(context, 'Calendar'),
-                  buildMenuItem(context, 'Ticket Issues'),
-                  buildMenuItem(context, 'Manage Events'),
                   buildMenuItem(context, 'Map'),
                 ],
               ),
@@ -115,6 +114,14 @@ class ProfilePage extends StatelessWidget {
                 context,
                 MaterialPageRoute(
                   builder: (context) => const FavoritesScreen(),
+                ),
+              );
+            } else if (title == 'Map') {
+              // Navigate to Map page
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const EventMap(),
                 ),
               );
             } else {

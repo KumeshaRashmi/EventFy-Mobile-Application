@@ -2,6 +2,8 @@
 
 <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
 <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
+<uses-permission android:name="android.permission.INTERNET"/>
+
 
     <application
         android:label="lef_mob"
@@ -34,6 +36,11 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+
+            <meta-data
+    android:name="com.google.android.geo.API_KEY"
+    android:value="AIzaSyAEtBGVucWKCFjlKXgYz6Pd4lwFPKS7uOc"
+    />
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

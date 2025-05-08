@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'dart:convert';
 import 'dart:io';
 
@@ -23,9 +24,9 @@ class _OrgCreateEventPageState extends State<OrgCreateEventPage> {
   TimeOfDay? selectedTime;
 
   String selectedCategory = 'Music';
-  String selectedLocation = 'Colombo';
   File? _eventImage;
   bool _isUploading = false;
+  LatLng? selectedLocation;
 
   final List<String> categories = [
     'Music',
@@ -34,34 +35,6 @@ class _OrgCreateEventPageState extends State<OrgCreateEventPage> {
     'Art',
     'Films',
     'Sports',
-  ];
-
-  final List<String> sriLankanLocations = [
-    'Colombo',
-    'Gampaha',
-    'Kalutara',
-    'Kandy',
-    'Matale',
-    'Nuwara Eliya',
-    'Galle',
-    'Matara',
-    'Hambantota',
-    'Jaffna',
-    'Kilinochchi',
-    'Mannar',
-    'Mullaitivu',
-    'Vavuniya',
-    'Batticaloa',
-    'Ampara',
-    'Trincomalee',
-    'Kurunegala',
-    'Puttalam',
-    'Anuradhapura',
-    'Polonnaruwa',
-    'Badulla',
-    'Monaragala',
-    'Ratnapura',
-    'Kegalle',
   ];
 
   Future<void> _pickImage() async {
@@ -101,6 +74,23 @@ class _OrgCreateEventPageState extends State<OrgCreateEventPage> {
     }
   }
 
+  Future<void> _pickLocation() async {
+    final LatLng? pickedLocation = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => LocationPickerPage(
+          initialLocation: selectedLocation ?? const LatLng(6.9271, 79.8612), // Default to Colombo
+        ),
+      ),
+    );
+
+    if (pickedLocation != null) {
+      setState(() {
+        selectedLocation = pickedLocation;
+      });
+    }
+  }
+
   Future<String> _uploadImageToCloudinary(File imageFile) async {
     const cloudName = 'dwuzpk4cd'; // Replace with your Cloudinary cloud name
     const uploadPreset = 'localevent'; // Replace with your Cloudinary unsigned upload preset
@@ -128,9 +118,10 @@ class _OrgCreateEventPageState extends State<OrgCreateEventPage> {
         eventDescriptionController.text.isEmpty ||
         selectedDate == null ||
         selectedTime == null ||
-        ticketPriceController.text.isEmpty) {
+        ticketPriceController.text.isEmpty ||
+        selectedLocation == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please fill in all fields and select an image.')),
+        const SnackBar(content: Text('Please fill in all fields and select an image and location.')),
       );
       return;
     }
@@ -157,7 +148,10 @@ class _OrgCreateEventPageState extends State<OrgCreateEventPage> {
         'title': eventNameController.text.trim(),
         'description': eventDescriptionController.text.trim(),
         'dateTime': eventDateTime.toIso8601String(),
-        'location': selectedLocation,
+        'location': {
+          'latitude': selectedLocation!.latitude,
+          'longitude': selectedLocation!.longitude,
+        },
         'category': selectedCategory,
         'image': imageUrl,
         'organizer': widget.organizerName, // Use the passed organizer name
@@ -176,7 +170,7 @@ class _OrgCreateEventPageState extends State<OrgCreateEventPage> {
       setState(() {
         _eventImage = null;
         selectedCategory = 'Music';
-        selectedLocation = 'Colombo';
+        selectedLocation = null;
         selectedDate = null;
         selectedTime = null;
       });
@@ -234,22 +228,6 @@ class _OrgCreateEventPageState extends State<OrgCreateEventPage> {
               },
             ),
             const SizedBox(height: 15),
-            DropdownButtonFormField<String>(
-              value: selectedLocation,
-              decoration: const InputDecoration(
-                labelText: 'Location',
-                border: OutlineInputBorder(),
-              ),
-              items: sriLankanLocations.map((location) {
-                return DropdownMenuItem(value: location, child: Text(location));
-              }).toList(),
-              onChanged: (value) {
-                setState(() {
-                  selectedLocation = value!;
-                });
-              },
-            ),
-            const SizedBox(height: 15),
             Row(
               children: [
                 Expanded(
@@ -300,6 +278,17 @@ class _OrgCreateEventPageState extends State<OrgCreateEventPage> {
               ),
             ),
             const SizedBox(height: 15),
+            ElevatedButton.icon(
+              onPressed: _pickLocation,
+              icon: const Icon(Icons.map, color: Colors.red), // Icon color set to red
+              label: Text(
+                selectedLocation != null
+                    ? 'Location Selected: ${selectedLocation!.latitude}, ${selectedLocation!.longitude}'
+                    : 'Pick Location',
+                style: const TextStyle(color: Colors.red), // Text color set to red
+              ),
+            ),
+            const SizedBox(height: 15),
             _isUploading
                 ? const CircularProgressIndicator()
                 : ElevatedButton(
@@ -312,6 +301,59 @@ class _OrgCreateEventPageState extends State<OrgCreateEventPage> {
                   ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class LocationPickerPage extends StatefulWidget {
+  final LatLng initialLocation;
+
+  const LocationPickerPage({super.key, required this.initialLocation});
+
+  @override
+  State<LocationPickerPage> createState() => _LocationPickerPageState();
+}
+
+class _LocationPickerPageState extends State<LocationPickerPage> {
+  LatLng? selectedLocation;
+
+  @override
+  void initState() {
+    super.initState();
+    selectedLocation = widget.initialLocation;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Pick Location'),
+      ),
+      body: GoogleMap(
+        initialCameraPosition: CameraPosition(
+          target: selectedLocation!,
+          zoom: 12,
+        ),
+        onTap: (LatLng location) {
+          setState(() {
+            selectedLocation = location;
+          });
+        },
+        markers: selectedLocation != null
+            ? {
+                Marker(
+                  markerId: const MarkerId('selected-location'),
+                  position: selectedLocation!,
+                )
+              }
+            : {},
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {
+          Navigator.pop(context, selectedLocation);
+        },
+        child: const Icon(Icons.check),
       ),
     );
   }

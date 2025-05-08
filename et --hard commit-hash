@@ -1,0 +1,67 @@
+[33mcommit 73d28c2877477070686a2908c3b8fd421b6a4f38[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mK-dev3[m[33m)[m
+Author: Asus <kumesharashmi918@gmail.com>
+Date:   Fri Mar 28 19:25:28 2025 +0530
+
+    organizer created event edit delete and  firebase update
+    
+    organizer created event edit delete update options add firebase update with collection data.
+
+[33mcommit 17b4e2d181066c8b3ac75dca15dd6e9487bb6ac6[m
+Author: Asus <kumesharashmi918@gmail.com>
+Date:   Fri Feb 21 13:13:20 2025 +0530
+
+    Home page carousel slider added  ,QR ,email functionality create
+
+[33mcommit 1da4d527dba5d78731df202c68f140d0bf1410f0[m
+Author: Asus <kumesharashmi918@gmail.com>
+Date:   Fri Feb 21 06:23:52 2025 +0530
+
+    booking page validations added ,autofill user details
+
+[33mcommit 28403460a97a404dbf26584483e51b3bf88d5255[m[33m ([m[1;32mK-dev2[m[33m)[m
+Author: Asus <kumesharashmi918@gmail.com>
+Date:   Mon Feb 17 10:39:57 2025 +0530
+
+    stripe payment method add
+
+[33mcommit 516c4691ababc3207104ab355dd7c0dcabe2be39[m
+Author: Asus <kumesharashmi918@gmail.com>
+Date:   Thu Jan 9 00:39:51 2025 +0530
+
+    event details appear correctly
+
+[33mcommit f35dc36ff0c178a65c97d4fdcad021a492d5f3f6[m
+Author: Asus <kumesharashmi918@gmail.com>
+Date:   Sun Jan 5 23:59:30 2025 +0530
+
+    Add image upload to Cloudinary and save event details to Firestore
+    
+    - Implement image picker for selecting event images
+    - Upload selected images to Cloudinary
+    - Save event details including image URL to Firestore
+    - Update OrgHomePage to include image upload functionality
+    - Add UserHomePage to display event details with images
+
+[33mcommit 069d69a77c6b87d53d485d963ed90855cfb54753[m
+Author: Asus <kumesharashmi918@gmail.com>
+Date:   Sun Jan 5 23:54:35 2025 +0530
+
+    Added event creation and display functionality with Firestore integration
+
+[33mcommit 60912e42c8273153ebc3cc941957166aa437ccbb[m
+Author: Asus <kumesharashmi918@gmail.com>
+Date:   Sun Dec 29 22:38:07 2024 +0530
+
+    K-dev second changes add
+
+[33mcommit 6d879682c3f57a26d6e56f2063b959e81e0741c3[m
+Author: Asus <kumesharashmi918@gmail.com>
+Date:   Wed Dec 25 21:55:44 2024 +0530
+
+    Add project files to K-dev branch
+
+[33mcommit 812fb7b9de4708118da1b99094545f9683ec1261[m
+Author: Asus <kumesharashmi918@gmail.com>
+Date:   Wed Dec 25 21:54:35 2024 +0530
+
+    Initial commit on main branch

@@ -5,6 +5,7 @@ import 'favourites.dart';
 import 'profile.dart';
 import 'setting.dart';
 import 'package:carousel_slider/carousel_slider.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class Home extends StatefulWidget {
   final String profileImageUrl;
@@ -24,12 +25,13 @@ class Home extends StatefulWidget {
 
 class _HomeState extends State<Home> {
   int _selectedIndex = 0;
-
   late final List<Widget> _pages;
+  String? userId;
 
   @override
   void initState() {
     super.initState();
+    _initializeUser();
     _pages = [
       HomePageContent(
         onFavorite: _addFavorite,
@@ -46,21 +48,59 @@ class _HomeState extends State<Home> {
     ];
   }
 
-  void _addFavorite(Map<String, dynamic> event) {
+  Future<void> _initializeUser() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null && mounted) {
+      setState(() {
+        userId = user.uid;
+      });
+    }
+  }
 
+  Future<void> _addFavorite(Map<String, dynamic> event) async {
+    if (userId == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please sign in to add favorites')),
+        );
+      }
+      return;
+    }
+
+    try {
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(userId)
+          .collection('favorites')
+          .doc(event['id'])
+          .set(event);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${event['title'] ?? 'Event'} added to favorites!')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to add favorite: $e')),
+        );
+      }
+    }
   }
 
   void _onItemTapped(int index) {
-    setState(() {
-      _selectedIndex = index;
-    });
+    if (_selectedIndex != index && mounted) {
+      setState(() {
+        _selectedIndex = index;
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        toolbarHeight: 0, // Hide the AppBar
+        toolbarHeight: 0,
         backgroundColor: Colors.white,
         elevation: 0,
       ),
@@ -70,23 +110,31 @@ class _HomeState extends State<Home> {
           BottomNavigationBarItem(
             icon: Icon(Icons.home),
             label: 'Home',
+            tooltip: 'Home',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.person),
             label: 'Profile',
+            tooltip: 'Profile',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.settings),
             label: 'Settings',
+            tooltip: 'Settings',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.favorite),
             label: 'Favorites',
+            tooltip: 'Favorites',
           ),
         ],
         currentIndex: _selectedIndex,
-        selectedItemColor:const Color.fromARGB(255, 250, 67, 67),
+        selectedItemColor: const Color.fromARGB(255, 250, 67, 67),
         unselectedItemColor: const Color.fromARGB(255, 130, 128, 128),
+        backgroundColor: Colors.white,
+        elevation: 10,
+        selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold),
+        unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.normal),
         onTap: _onItemTapped,
       ),
     );
@@ -109,10 +157,15 @@ class HomePageContent extends StatefulWidget {
   _HomePageContentState createState() => _HomePageContentState();
 }
 
-class _HomePageContentState extends State<HomePageContent> {
+class _HomePageContentState extends State<HomePageContent> with SingleTickerProviderStateMixin {
   String selectedLocation = 'All';
   String selectedCategory = 'All';
   String searchQuery = '';
+  bool _isLoading = false;
+  late AnimationController _animationController;
+  late Animation<double> _fadeAnimation;
+
+  final List<Map<String, dynamic>> events = [];
 
   List<String> carouselImages = [
     'lib/assets/event1.jpg',
@@ -159,66 +212,145 @@ class _HomePageContentState extends State<HomePageContent> {
     'Sports',
   ];
 
-  final List<Map<String, dynamic>> events = [
-    
-  ];
-
   @override
   void initState() {
     super.initState();
+    _animationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 800),
+    );
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
+    );
+    _animationController.forward();
     _fetchEvents();
   }
 
-  void _fetchEvents() async {
-    final snapshot = await FirebaseFirestore.instance.collection('events').get();
+  @override
+  void dispose() {
+    _animationController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _fetchEvents() async {
+    if (_isLoading) return;
     setState(() {
-      events.addAll(snapshot.docs.map((doc) => doc.data()).toList());
+      _isLoading = true;
     });
+
+    try {
+      final snapshot = await FirebaseFirestore.instance.collection('events').get();
+      if (mounted) {
+        setState(() {
+          events.clear();
+          events.addAll(snapshot.docs.map((doc) {
+            final data = doc.data();
+            data['id'] = doc.id;
+            // Handle GeoPoint for location
+            if (data['location'] is GeoPoint) {
+              final geoPoint = data['location'] as GeoPoint;
+              data['locationDisplay'] = '${geoPoint.latitude.toStringAsFixed(4)}, ${geoPoint.longitude.toStringAsFixed(4)}';
+              // Map to Sri Lankan location if possible
+              data['location'] = _getLocationFromGeoPoint(geoPoint);
+            } else {
+              data['locationDisplay'] = data['location']?.toString() ?? 'Unknown';
+              data['location'] = data['location']?.toString() ?? 'Unknown';
+            }
+            // Handle dateTime
+            if (data['dateTime'] is Timestamp) {
+              data['dateTime'] = (data['dateTime'] as Timestamp).toDate().toString();
+            } else if (data['dateTime'] is String) {
+              data['dateTime'] = DateTime.tryParse(data['dateTime'])?.toString() ?? 'No Date';
+            } else {
+              data['dateTime'] = 'No Date';
+            }
+            return data;
+          }).toList());
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to fetch events: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  String _getLocationFromGeoPoint(GeoPoint geoPoint) {
+    // Simplified mapping; in a real app, use a reverse geocoding API
+    final double lat = geoPoint.latitude;
+    final double lon = geoPoint.longitude;
+
+    if (lat >= 6.8 && lat <= 7.0 && lon >= 79.8 && lon <= 80.0) {
+      return 'Colombo';
+    } else if (lat >= 7.2 && lat <= 7.4 && lon >= 80.6 && lon <= 80.8) {
+      return 'Kandy';
+    } else if (lat >= 6.0 && lat <= 6.2 && lon >= 80.2 && lon <= 80.4) {
+      return 'Galle';
+    }
+    // If no match, return the coordinates as a fallback
+    return sriLankanLocations.contains('$lat,$lon') ? '$lat,$lon' : 'Unknown';
   }
 
   List<Map<String, dynamic>> getFilteredEvents() {
     return events.where((event) {
       final matchesLocation = selectedLocation == 'All' || event['location'] == selectedLocation;
-      final matchesCategory = selectedCategory == 'All' || event['category'] == selectedCategory;
-      final matchesSearchQuery = event['title'].toLowerCase().contains(searchQuery.toLowerCase());
+      final matchesCategory = selectedCategory == 'All' || event['category']?.toString() == selectedCategory;
+      final matchesSearchQuery = event['title']?.toString().toLowerCase().contains(searchQuery.toLowerCase()) ?? false;
       return matchesLocation && matchesCategory && matchesSearchQuery;
     }).toList();
   }
 
-@override
+  @override
   Widget build(BuildContext context) {
     final filteredEvents = getFilteredEvents();
 
-  return SingleChildScrollView(
-      child: Padding(
-        padding: const EdgeInsets.all(8.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-          Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-                "Welcome, ${widget.displayName.split(' ')[0]} to EventFy",
-                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
-              ),
-            CircleAvatar(
-              backgroundImage: NetworkImage(widget.profileImageUrl),
-              radius: 18,
-            ),
-          ],
-        ),
-            const SizedBox(height: 16),
-            // Search bar and dropdowns
-            Padding(
-              padding: const EdgeInsets.only(bottom: 15),
-              child: Row(
+    return RefreshIndicator(
+      onRefresh: _fetchEvents,
+      color: const Color.fromARGB(255, 250, 67, 67),
+      child: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
+                  Flexible(
+                    child: Text(
+                      "Welcome, ${widget.displayName.split(' ')[0]} to EventFy",
+                      style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black87),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  CircleAvatar(
+                    radius: 20,
+                    backgroundImage: widget.profileImageUrl.isNotEmpty
+                        ? NetworkImage(widget.profileImageUrl)
+                        : null,
+                    child: widget.profileImageUrl.isEmpty
+                        ? const Icon(Icons.person, color: Colors.white, size: 20)
+                        : null,
+                    backgroundColor: Colors.grey.withOpacity(0.3),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  const Text(
                     'Ef',
                     style: TextStyle(
-                      color: Colors.red,
-                      fontSize: 30,
+                      color: Color.fromARGB(255, 250, 67, 67),
+                      fontSize: 32,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
@@ -226,174 +358,181 @@ class _HomePageContentState extends State<HomePageContent> {
                   Expanded(
                     child: TextField(
                       onChanged: (value) {
-                        setState(() {
-                          searchQuery = value;
-                        });
+                        if (mounted) {
+                          setState(() {
+                            searchQuery = value;
+                          });
+                        }
                       },
                       decoration: InputDecoration(
-                        prefixIcon: const Icon(Icons.search),
+                        prefixIcon: const Icon(Icons.search, color: Colors.grey),
                         hintText: 'Search events...',
+                        hintStyle: const TextStyle(color: Colors.grey),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(16),
                           borderSide: const BorderSide(color: Colors.grey),
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(16),
-                          borderSide: const BorderSide(color: Colors.red),
+                          borderSide: const BorderSide(color: Color.fromARGB(255, 250, 67, 67)),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          borderSide: const BorderSide(color: Colors.grey),
                         ),
                       ),
                     ),
                   ),
                 ],
               ),
-            ),
-            //carousel
-            CarouselSlider(
-              options: CarouselOptions(
-                height: 200.0,
-                autoPlay: true,
-                enlargeCenterPage: true,
-              ),
-              items: carouselImages.map((image) {
-                return Container(
-                  width: MediaQuery.of(context).size.width,
-                  margin: const EdgeInsets.symmetric(horizontal: 5.0),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(16),
-                    image: DecorationImage(
-                      image: AssetImage(image),
-                      fit: BoxFit.cover,
-                    ),
-                  ),
-                );
-              }).toList(),
-            ),
-
-            // Dropdowns for Location and Category
               const SizedBox(height: 20),
-            Row(
-            
-              children: [
-                Expanded(
-                  child: DropdownButtonFormField<String>(
-                    value: selectedLocation,
-                    decoration: InputDecoration(
-                      labelText: 'Select Location',
-                      floatingLabelStyle: TextStyle(
-                      color: Colors.red, 
-                      ),
-                      border: OutlineInputBorder(
+              FadeTransition(
+                opacity: _fadeAnimation,
+                child: CarouselSlider(
+                  options: CarouselOptions(
+                    height: 200.0,
+                    autoPlay: true,
+                    autoPlayInterval: const Duration(seconds: 3),
+                    enlargeCenterPage: true,
+                    viewportFraction: 0.9,
+                  ),
+                  items: carouselImages.map((image) {
+                    return Container(
+                      width: MediaQuery.of(context).size.width,
+                      margin: const EdgeInsets.symmetric(horizontal: 5.0),
+                      decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(16),
-                        borderSide: const BorderSide(
-                        color: Colors.grey,
+                        image: DecorationImage(
+                          image: AssetImage(image),
+                          fit: BoxFit.cover,
                         ),
                       ),
-                      focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      borderSide: const BorderSide(
-                      color: Colors.red,
-                      width: 1.0,
+                    );
+                  }).toList(),
+                ),
+              ),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  Expanded(
+                    child: DropdownButtonFormField<String>(
+                      value: selectedLocation,
+                      decoration: InputDecoration(
+                        labelText: 'Select Location',
+                        labelStyle: const TextStyle(color: Colors.grey),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          borderSide: const BorderSide(color: Color.fromARGB(255, 250, 67, 67)),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          borderSide: const BorderSide(color: Colors.grey),
+                        ),
                       ),
+                      items: sriLankanLocations.map((location) {
+                        return DropdownMenuItem(
+                          value: location,
+                          child: Text(location, style: const TextStyle(color: Colors.black)),
+                        );
+                      }).toList(),
+                      onChanged: (value) {
+                        if (mounted) {
+                          setState(() {
+                            selectedLocation = value!;
+                          });
+                        }
+                      },
+                      dropdownColor: Colors.white,
                     ),
-                    enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(16),
-                    borderSide: const BorderSide(
-                    color: Colors.grey,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: DropdownButtonFormField<String>(
+                      value: selectedCategory,
+                      decoration: InputDecoration(
+                        labelText: 'Select Category',
+                        labelStyle: const TextStyle(color: Colors.grey),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          borderSide: const BorderSide(color: Colors.grey),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          borderSide: const BorderSide(color: Color.fromARGB(255, 250, 67, 67)),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          borderSide: const BorderSide(color: Colors.grey),
+                        ),
+                      ),
+                      items: eventCategories.map((category) {
+                        return DropdownMenuItem(
+                          value: category,
+                          child: Text(category, style: const TextStyle(color: Colors.black)),
+                        );
+                      }).toList(),
+                      onChanged: (value) {
+                        if (mounted) {
+                          setState(() {
+                            selectedCategory = value!;
+                          });
+                        }
+                      },
+                      dropdownColor: Colors.white,
                     ),
-                    ),
                   ),
-                    items: sriLankanLocations.map((location) {
-                      return DropdownMenuItem(
-                        value: location,
-                        child: Text(location),
-                      );
-                    }).toList(),
-                    onChanged: (value) {
-                      setState(() {
-                        selectedLocation = value!;
-                      });
-                    },
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                child: DropdownButtonFormField<String>(
-                value: selectedCategory,
-                decoration: InputDecoration(
-                  labelText: 'Select Category',
-                  floatingLabelStyle: TextStyle(
-                  color: Colors.red, 
-                ),
-      
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(16),
-                  borderSide: const BorderSide(
-                  color: Colors.grey,
-                  ),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(16),
-                  borderSide: const BorderSide(
-                  color: Colors.red,
-                  width: 1.0,
-                  ),
-                ),
-                enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: const BorderSide(
-                color: Colors.grey,
-                  ),
-                ),
+                ],
               ),
-              items: eventCategories.map((category) {
-                return DropdownMenuItem(
-                value: category,
-                child: Text(
-                category,
-                style: TextStyle(
-                  color: Colors.black,
-                  ),
-                ),
-              );
-              }).toList(),
-              onChanged: (value) {
-              setState(() {
-              selectedCategory = value!; // Update selected category
-              });
-            },
-              dropdownColor: Colors.white, // Background color for dropdown
+              const SizedBox(height: 24),
+              const Text(
+                'Discover Events',
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.black87),
               ),
-            ),
-          ],
-        ),
-            const SizedBox(height: 20),
-            const Text(
-              'Discover Events',
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 20),
-            ListView.separated(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: filteredEvents.length,
-              separatorBuilder: (context, index) => const SizedBox(height: 16),
-              itemBuilder: (context, index) {
-                final event = filteredEvents[index];
-                return buildEventCard(event, context, widget.onFavorite);
-              },
-            ),
-          ],
+              const SizedBox(height: 16),
+              _isLoading
+                  ? const Center(child: CircularProgressIndicator(color: Color.fromARGB(255, 250, 67, 67)))
+                  : filteredEvents.isEmpty
+                      ? const Center(
+                          child: Column(
+                            children: [
+                              Icon(Icons.event_busy, size: 60, color: Colors.grey),
+                              SizedBox(height: 16),
+                              Text(
+                                'No events found.',
+                                style: TextStyle(fontSize: 18, color: Colors.grey),
+                              ),
+                            ],
+                          ),
+                        )
+                      : ListView.separated(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: filteredEvents.length,
+                          separatorBuilder: (context, index) => const SizedBox(height: 16),
+                          itemBuilder: (context, index) {
+                            final event = filteredEvents[index];
+                            return FadeTransition(
+                              opacity: _fadeAnimation,
+                              child: buildEventCard(event, context, widget.onFavorite),
+                            );
+                          },
+                        ),
+            ],
+          ),
         ),
       ),
     );
   }
 
-    Widget buildEventCard(Map<String, dynamic> event, BuildContext context, Function(Map<String, dynamic>) onFavorite) {
+  Widget buildEventCard(Map<String, dynamic> event, BuildContext context, Function(Map<String, dynamic>) onFavorite) {
     return Card(
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
       ),
-      elevation: 4,
+      elevation: 5,
       child: InkWell(
         onTap: () {
           Navigator.push(
@@ -403,83 +542,97 @@ class _HomePageContentState extends State<HomePageContent> {
             ),
           );
         },
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            ClipRRect(
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-              child: Image.network(
-                event['image'],
-                height: 180,
-                width: double.infinity,
-                fit: BoxFit.cover,
-              ),
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            color: Colors.white, // Set background color to white
+            border: Border.all(
+              color: Colors.black, // Set border color to black
+              width: 1.0, // Set border width
             ),
-            Padding(
-              padding: const EdgeInsets.all(12.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    event['title'],
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ClipRRect(
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+                child: Image.network(
+                  event['image']?.toString() ?? '',
+                  height: 180,
+                  width: double.infinity,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) => const Icon(
+                    Icons.broken_image,
+                    size: 100,
+                    color: Colors.grey,
                   ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      const Icon(Icons.calendar_today, size: 16, color: Colors.grey),
-                      const SizedBox(width: 4),
-                      Text(
-                        event['dateTime'],
-                        style: const TextStyle(color: Colors.grey),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(12.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      event['title']?.toString() ?? 'Untitled Event',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black87,
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      const Icon(Icons.location_on, size: 16, color: Colors.grey),
-                      const SizedBox(width: 4),
-                      Text(
-                        event['location'],
-                        style: const TextStyle(color: Colors.grey),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    event['description'],
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.grey),
-                  ),
-                ],
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Rs. ${event['ticketPrice']}',
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.red,
                     ),
-                  ),
-                  
-                ],
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        const Icon(Icons.calendar_today, size: 16, color: Colors.grey),
+                        const SizedBox(width: 4),
+                        Text(
+                          event['dateTime']?.toString() ?? 'No Date',
+                          style: const TextStyle(color: Colors.grey),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        const Icon(Icons.location_on, size: 16, color: Colors.grey),
+                        const SizedBox(width: 4),
+                        Text(
+                          event['locationDisplay']?.toString() ?? 'No Location',
+                          style: const TextStyle(color: Colors.grey),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      event['description']?.toString() ?? 'No Description',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Colors.grey),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Rs. ${event['ticketPrice']?.toString() ?? '0'}',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Color.fromARGB(255, 250, 67, 67),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 }
-
